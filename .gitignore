@@ -1,0 +1,17 @@
+# Editor settings files
+.vscode/*
+
+# Editor swap files
+*.swp
+
+# Build directories
+build/
+Build/
+Release/
+Debug/
+RelWithDebinfo/
+
+# Output files
+*.log
+*.out
+*.output
