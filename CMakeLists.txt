@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
-project(tcp_dissector CXX)
+project(packet_inspector CXX)
 
-set(PROJECT_NAME tcp_dissector)
+set(PROJECT_NAME packet_inspector)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

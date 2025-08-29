@@ -7,8 +7,14 @@
 namespace Session {
 
 enum class LAYER4_PROTOCOLS : std::uint8_t {
-  TCP = 0x0000,
-  UDP = 0x0001
+  TCP = 0x00,
+  UDP = 0x01,
+  PROTOCOLS_COUNT
+};
+
+static const char* LAYER4_PROTOCOL_NAMES[static_cast<std::uint8_t>(LAYER4_PROTOCOLS::PROTOCOLS_COUNT)] {
+  [static_cast<std::uint8_t>(LAYER4_PROTOCOLS::TCP)] = "TCP",
+  [static_cast<std::uint8_t>(LAYER4_PROTOCOLS::UDP)] = "UDP"
 };
 
 struct SessionKey {

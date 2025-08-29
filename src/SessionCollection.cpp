@@ -3,6 +3,8 @@
 #include <arpa/inet.h> // For inet_ntoa
 #include <netinet/in.h> // For in_addr
 
+#include <cstring>
+
 #include <iostream>
 #include <format>
 
@@ -24,19 +26,34 @@ SessionCollection::addSessionPair(std::pair<SessionKey, std::shared_ptr<SessionB
 
 VERBOSE(
 void SessionCollection::printSession(const SessionKey& key) const noexcept {
+    char src_ip_str[INET_ADDRSTRLEN];
+    char dst_ip_str[INET_ADDRSTRLEN];
+
+    inet_ntop(AF_INET, &key.ip1, src_ip_str, INET_ADDRSTRLEN);
+    inet_ntop(AF_INET, &key.ip2, dst_ip_str, INET_ADDRSTRLEN);
+
     auto it = _active_sessions.find(key);
     if (it != _active_sessions.end()) {
-        std::cout << std::format("\t\tSession Key: ({}:{} <-> {}:{}):\n", inet_ntoa(in_addr{key.ip1}), key.port1, inet_ntoa(in_addr{key.ip2}), key.port2);
+        std::cout << std::format("\t\tSession Key: ({}:{} <-> {}:{} / {}):\n", src_ip_str, key.port1, dst_ip_str, key.port2, LAYER4_PROTOCOL_NAMES[static_cast<std::uint8_t>(key.l4proto)]);
     } else {
-        std::cout << std::format("\t\tSession not found for key: ({}:{} <-> {}:{}):\n",
-                inet_ntoa(in_addr{key.ip1}), key.port1, inet_ntoa(in_addr{key.ip2}), key.port2);
+        std::cout << std::format("\t\tSession not found for key: ({}:{} <-> {}:{} / {}):\n",
+                src_ip_str, key.port1, dst_ip_str, key.port2, LAYER4_PROTOCOL_NAMES[static_cast<std::uint8_t>(key.l4proto)]);
     }
 }
 
 void SessionCollection::printSessions() const noexcept {
+    char src_ip_str[INET_ADDRSTRLEN];
+    char dst_ip_str[INET_ADDRSTRLEN];
+
     std::size_t counter {1};
-    for (const auto& [key, info] : _active_sessions) {
-        std::cout << std::format("\t\t{}. Session Key: ({}:{} <-> {}:{}):\n", counter++, inet_ntoa(in_addr{key.ip1}), key.port1, inet_ntoa(in_addr{key.ip2}), key.port2);
+    for (const auto& [key, session] : _active_sessions) {
+        inet_ntop(AF_INET, &key.ip1, src_ip_str, INET_ADDRSTRLEN);
+        inet_ntop(AF_INET, &key.ip2, dst_ip_str, INET_ADDRSTRLEN);
+
+        std::cout << std::format("\t\t{}. Session Key: ({}:{} <-> {}:{} / {}):\n", counter++, src_ip_str, key.port1, dst_ip_str, key.port2, LAYER4_PROTOCOL_NAMES[static_cast<std::uint8_t>(key.l4proto)]);
+
+        std::memset(src_ip_str, '\0', INET_ADDRSTRLEN);
+        std::memset(dst_ip_str, '\0', INET_ADDRSTRLEN);
     }
 }
 ) // VERBOSE

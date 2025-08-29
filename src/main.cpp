@@ -355,7 +355,7 @@ void my_packet_handler(u_char *args, const struct pcap_pkthdr *packet_header, co
                 current_key.port1 = th_dport;
                 current_key.ip2 = ip_src;
                 current_key.port2 = th_sport;
-            } else { // Smae IP, differentiate by port
+            } else { // Same IP, differentiate by port
                 current_key.ip1 = ip_src;
                 current_key.ip2 = ip_dst; // Same IP
                 current_key.port1 = std::min(th_sport, th_dport);
@@ -452,6 +452,34 @@ void my_packet_handler(u_char *args, const struct pcap_pkthdr *packet_header, co
             VERBOSE(std::cout << std::format("\t\tDestination Port: {}\n", uh_dport));
             VERBOSE(std::cout << std::format("\t\tHeader Length: {}\n", uh_len));
             VERBOSE(std::cout << std::format("\t\tChecksum: {:#04x}\n", uh_chsum));
+
+            // Handle UDP sessions
+            Session::SessionKey current_key;
+            current_key.l4proto = Session::LAYER4_PROTOCOLS::UDP;
+            if (in_addr_t ip_src = ip_header->ip_src.s_addr, ip_dst = ip_header->ip_dst.s_addr; ip_src < ip_dst) {
+                current_key.ip1 = ip_src;
+                current_key.port1 = uh_sport;
+                current_key.ip2 = ip_dst;
+                current_key.port2 = uh_dport;
+            } else if (ip_src > ip_dst) {
+                current_key.ip1 = ip_dst;
+                current_key.port1 = uh_dport;
+                current_key.ip2 = ip_src;
+                current_key.port2 = uh_sport;
+            } else { // Same IP, differentiate by port
+                current_key.ip1 = ip_src;
+                current_key.ip2 = ip_dst; // Same IP
+                current_key.port1 = std::min(uh_sport, uh_dport);
+                current_key.port2 = std::max(uh_sport, uh_dport);
+            }
+
+            std::shared_ptr<Session::SessionCollection> session_manager = Session::SessionCollection::get_instance();
+            auto [it, inserted] = session_manager->addSessionPair({current_key, nullptr});
+
+            VERBOSE(
+                if (inserted) { std::cout << "\t\t[NEW SESSION ESTABLISHED]\n"; session_manager->printSessions(); }
+                else { std::cout << "\t\t[EXISTING SESSION]\n"; session_manager->printSession(current_key); }
+            );
 
             // Advance payload pointer past UDP header
             payload += sizeof(struct custom_udp_header);

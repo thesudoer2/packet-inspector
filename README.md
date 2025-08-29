@@ -16,16 +16,16 @@ Packet Inspector is a C++20-based network packet analysis tool designed for live
 ## Usage
 
 ```sh
-./tcp_dissector [OPTIONS]
+./packet_inspector [OPTIONS]
 ```
 
 ### Options
 
-- `-i, --interface [IFACE]`  
+- `-i, --interface [IFACE]`
   Listen on the given network interface (omit `IFACE` to use the system default).
-- `-r, --read <PCAP>`  
+- `-r, --read <PCAP>`
   Read packets from a `.pcap` file instead of live capture.
-- `-h, --help`  
+- `-h, --help`
   Show help message.
 
 > **Note:** `-i` and `-r` are mutually exclusive.
@@ -34,12 +34,12 @@ Packet Inspector is a C++20-based network packet analysis tool designed for live
 
 Capture live packets on the default interface:
 ```sh
-./tcp_dissector -i
+./packet_inspector -i
 ```
 
 Analyze packets from a file:
 ```sh
-./tcp_dissector -r capture.pcap
+./packet_inspector -r capture.pcap
 ```
 
 ## Build
