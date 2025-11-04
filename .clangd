@@ -1,0 +1,8 @@
+CompileFlags:
+  Add: [-std=c++23]
+  # Adjust if you use libc++ instead of libstdc++
+  # Example for libstdc++ (GCC's library):
+  Add: [
+    "-I/usr/include/c++/13",
+    "-I/usr/include/x86_64-linux-gnu/c++/13"
+  ]

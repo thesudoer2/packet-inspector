@@ -9,17 +9,11 @@
 
 #include <string>
 #include <format>
-#include <sstream>
-#include <iomanip>
 #include <iostream>
-#include <iterator>
 #include <algorithm>
-#include <ranges>
-#include <span>
 
 #include <cstdio>
 #include <ctime>
-#include <cinttypes>
 #include <cstring>
 
 #include <pcap.h>

@@ -5,9 +5,6 @@
 
 #include <cstring>
 
-#include <iostream>
-#include <format>
-
 #include "SessionCollection.h"
 
 namespace Session {
