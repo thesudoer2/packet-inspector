@@ -15,3 +15,7 @@ RelWithDebinfo/
 *.log
 *.out
 *.output
+
+# Cache
+.ccache
+.cache
