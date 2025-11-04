@@ -13,26 +13,27 @@
 
 namespace Session {
 
-class SessionCollection : public Utility::SingletonBase<SessionCollection> {
-  friend Utility::SingletonBase<SessionCollection>;
+class SessionCollection : public Utility::SingletonBase<SessionCollection>
+{
+    friend Utility::SingletonBase<SessionCollection>;
 
-public:
-  using SessionContainer = std::map<SessionKey, std::shared_ptr<SessionBase>>;
-  using SessionContainerIterator = SessionContainer::iterator;
-  using SessionContainerConstIterator = SessionContainer::const_iterator;
+  public:
+    using SessionContainer = std::map<SessionKey, std::shared_ptr<SessionBase>>;
+    using SessionContainerIterator = SessionContainer::iterator;
+    using SessionContainerConstIterator = SessionContainer::const_iterator;
 
-public:
-  std::pair<SessionContainerIterator, bool> addSessionPair(
+  public:
+    std::pair<SessionContainerIterator, bool> addSessionPair(
       std::pair<SessionKey, std::shared_ptr<SessionBase>> session_pair);
 
-  VERBOSE(void printSessions() const noexcept);
-  VERBOSE(void printSession(const SessionKey &session_key) const noexcept);
+    VERBOSE(void printSessions() const noexcept);
+    VERBOSE(void printSession(const SessionKey &session_key) const noexcept);
 
-private:
-  SessionCollection() noexcept = default;
+  private:
+    SessionCollection() noexcept = default;
 
-private:
-  SessionContainer _active_sessions;
+  private:
+    SessionContainer _active_sessions;
 };
 
-} // namespace Session
+}// namespace Session
