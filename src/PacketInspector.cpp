@@ -7,6 +7,8 @@
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 
+#include <getopt.h>
+
 #include <algorithm>
 #include <format>
 #include <iostream>
@@ -21,98 +23,6 @@
 #include "OptionHandler.h"
 #include "Session.h"
 #include "SessionCollection.h"
-
-// Define a packed Ethernet header to prevent compiler padding
-struct custom_ethernet_header
-{
-    u_char ether_dhost[ETHER_ADDR_LEN]; /* destination host address */
-    u_char ether_shost[ETHER_ADDR_LEN]; /* source host address */
-    std::uint16_t ether_type; /* IP, ARP, RARP, etc. */
-} __attribute__((packed));
-
-// Define a packed VLAN tag to prevent compiler padding
-struct custom_vlan_tag
-{
-    std::uint16_t vlan_tci;// Tag Control Information (Priority, CFI, VLAN ID)
-    std::uint16_t vlan_proto;// EtherType of the encapsulated protocol
-} __attribute__((packed));
-
-// Define a packed IP header structure that matches the wire format
-struct custom_ip_header
-{
-    std::uint8_t ip_vhl;// Version (4 bits) and Header Length (4 bits)
-    std::uint8_t ip_tos;// Type of Service
-    std::uint16_t ip_len;// Total Length
-    std::uint16_t ip_id;// Identification
-    std::uint16_t ip_off;// Fragment Offset
-    std::uint8_t ip_ttl;// Time To Live
-    std::uint8_t ip_p;// Protocol
-    std::uint16_t ip_sum;// Header Checksum
-    struct in_addr ip_src;// Source IP Address
-    struct in_addr ip_dst;// Destination IP Address
-} __attribute__((packed));
-
-struct custom_tcp_header
-{
-    std::uint16_t src_port;// Source Port
-    std::uint16_t dst_port;// Destination Port
-    std::uint32_t seq_num;// Sequence Number
-    std::uint32_t ack_num;// Acknowledgment Number
-    std::uint8_t data_offx2;// Data Offset (4 bits) and Reserved (4 Bits)
-    std::uint8_t flags;// TCP Flags
-    std::uint16_t window;// Window Size
-    std::uint16_t checksum;// Checksum
-    std::uint16_t urgen;// Urgen Pointer
-} __attribute__((packed));
-
-struct custom_udp_header
-{
-    std::uint16_t src_port;// Source Port
-    std::uint16_t dst_port;// Destination Port
-    std::uint16_t len;// Header Length
-    std::uint16_t checksum;// Header Checksum
-} __attribute__((packed));
-
-
-/******* Add ETHERTYPE_ definitions if system's net/ethernet.h doesn't have them *******/
-
-// VLAN (802.1Q)
-#ifndef ETHERTYPE_VLAN
-#define ETHERTYPE_VLAN 0x8100
-#endif
-
-// IP
-#ifndef ETHERTYPE_IP
-#define ETHERTYPE_IP 0x0800
-#endif
-
-// ARP
-#ifndef ETHERTYPE_ARP
-#define ETHERTYPE_ARP 0x0806
-#endif
-
-// AARP
-#ifndef ETHERTYPE_AARP
-#define ETHERTYPE_AARP 0x80F7
-#endif
-
-// LOOPBACK
-#ifndef ETHERTYPE_LOOPBACK
-#define ETHERTYPE_LOOPBACK 0x0060
-#endif
-
-// TCP
-#ifndef IPPROTO_TCP
-#define IPPROTO_TCP 0x0006
-#endif
-
-// UDP
-#ifndef IPPROTO_UDP
-#define IPPROTO_UDP 0x0023
-#endif
-
-
-#define TCP_HEADER_IS_FLAG_SET(header, flag) (((header)->flags & (flag)) != 0)
 
 #ifdef BE_VERBOSE
 #define VERBOSE(x) x
@@ -129,6 +39,12 @@ struct custom_udp_header
 
 inline void my_packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) noexcept;
 inline void print_packet_info(const u_char *packet, struct pcap_pkthdr packet_header) noexcept;
+
+const char *short_opts = "hi::r:";// i:: means optional argument
+    const struct option long_opts[] = { { "help", no_argument, nullptr, 'h' },
+        { "interface", optional_argument, nullptr, 'i' },
+        { "read", required_argument, nullptr, 'r' },
+        { nullptr, 0, nullptr, 0 } };
 
 
 int main(int argc, char *argv[])
