@@ -6,24 +6,18 @@ set(PROJECT_NAME packet_inspector)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(SOURCES
-    src/main.cpp
-    src/OptionHandler.cpp
-    src/Session.cpp
-    src/SessionCollection.cpp
+set(MAIN_SOURCES
+    src/PacketInspector.cpp
 )
-
-# Add compiler definition for debug targets
-if (CMAKE_BUILD_TYPE STREQUAL "DEBUG")
-    add_compile_definitions(BE_VERBOSE=1)
-    add_compile_definitions(DO_DEBUGGING=1)
-endif()
 
 # Ignore "deprecated-declarations" warnings
 add_compile_options(-Wno-deprecated-declarations)
 
-add_executable(${PROJECT_NAME} ${SOURCES})
-target_link_libraries(${PROJECT_NAME}
-    PUBLIC
-        -lpcap
-)
+add_subdirectory(src)
+
+add_executable(${PROJECT_NAME} ${MAIN_SOURCES})
+
+# target_link_libraries(${PROJECT_NAME}
+#     PUBLIC
+#         -lpcap
+# )
