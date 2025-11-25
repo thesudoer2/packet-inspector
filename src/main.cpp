@@ -16,11 +16,15 @@
 #include <algorithm>
 #include <ranges>
 #include <span>
+#include <chrono>
 
 #include <cstdio>
 #include <ctime>
 #include <cinttypes>
 #include <cstring>
+
+#include <boost/beast/http.hpp>
+#include <boost/beast/core/flat_buffer.hpp>
 
 #include <pcap.h>
 
@@ -128,15 +132,33 @@ struct custom_udp_header {
 #endif
 
 
+// Global flag for graceful shutdown
+volatile sig_atomic_t shutdown_requested = 0;
+pcap_t *handle;
+
+inline void setup_signal_handlers(void (*handler)(int));
+inline void signal_handler(int signum);
+
+static std::chrono::steady_clock::time_point start_time;
+static std::uint64_t number_of_processed_packets = 0;
+
+inline void print_statistics();
+
 inline void my_packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) noexcept;
+inline bool parse_and_print_http(const std::uint8_t *data, std::size_t len) noexcept;
 inline void print_packet_info(const u_char *packet, struct pcap_pkthdr packet_header) noexcept;
 
 
 int main(int argc, char *argv[]) {
+    // Setup signals
+    setup_signal_handlers(signal_handler);
+
     if (argc == 1) {
         print_help(argv[0]);
         return EXIT_FAILURE;
     }
+
+    VERBOSE(std::cout << std::unitbuf;);
 
     ProgramOptions options = parse_arguments(argc, argv);
     if (options.show_help) {
@@ -146,8 +168,7 @@ int main(int argc, char *argv[]) {
     else if (options.use_interface) {
         char *device;
         char error_buffer[PCAP_ERRBUF_SIZE];
-        pcap_t *handle;
-        int timeout_limit = 10000; /* In milliseconds */
+        int timeout_limit = 10; /* In milliseconds */
 
         // Select default interface
         device = (options.interface_name.empty() ? pcap_lookupdev(error_buffer) : options.interface_name.data());
@@ -166,32 +187,47 @@ int main(int argc, char *argv[]) {
             return 2;
         }
 
-        if (pcap_loop(handle, 0, my_packet_handler, NULL) < 0) {
-            std::cerr << std::format("\npcap_loop() failed: {}\n", pcap_geterr(handle));
-            return EXIT_FAILURE;
+        // if (pcap_loop(handle, 0, my_packet_handler, NULL) < 0) {
+        //     std::cerr << std::format("\npcap_loop() failed: {}\n", pcap_geterr(handle));
+        //     return EXIT_FAILURE;
+        // }
+
+        std::cerr << "before pcap_loop\n";
+        pcap_loop(handle, 0, my_packet_handler, NULL);
+        std::cerr << "after pcap_loop\n";
+
+        // now we can cleanly shut down
+        if (shutdown_requested) {
+            std::cout << "Stopping capture...\n";
+
+            pcap_breakloop(handle);
+
+            // Print statistics at exit time
+            print_statistics();
         }
+
+        pcap_close(handle);
     }
     else if (options.use_pcap) {
         std::cout << "Reading from pcap file: " << options.pcap_file << "\n";
 
-		////////////////////// DPI Initialization ////////////////////////
-		;
-		/////////////////////////////////////////////////////////////////
+        char errbuf[PCAP_BUF_SIZE]{ '\0' };
+        char source[PCAP_BUF_SIZE]{ '\0' };
 
-        pcap_t* pcap_handler;
-        char errbuf[PCAP_BUF_SIZE] { '\0' };
-        char source[PCAP_BUF_SIZE] { '\0' };
-
-        pcap_handler = pcap_open_offline(options.pcap_file.c_str(), errbuf);
-        if (pcap_handler == nullptr) {
+        handle = pcap_open_offline(options.pcap_file.c_str(), errbuf);
+        if (handle == nullptr) {
             std::cerr << std::format("pcap_open_offline() failed: {}", errbuf) << std::endl;
             return EXIT_FAILURE;
         }
 
-        if (pcap_loop(pcap_handler, 0, my_packet_handler, NULL) < 0) {
-            std::cerr << std::format("\npcap_loop() failed: {}\n", pcap_geterr(pcap_handler));
+        start_time = std::chrono::steady_clock::now();
+
+        if (pcap_loop(handle, 0, my_packet_handler, NULL) < 0) {
+            std::cerr << std::format("\npcap_loop() failed: {}\n", pcap_geterr(handle));
             return EXIT_FAILURE;
         }
+
+        pcap_close(handle);
     }
     else {
         std::cerr << "Error: You must specify either -i/--interface or -r/--read.\n";
@@ -201,10 +237,48 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-void my_packet_handler(u_char *args, const struct pcap_pkthdr *packet_header, const u_char *packet_body) noexcept {
-    static std::uint64_t packet_counter {1};
+void setup_signal_handlers(void (*handler)(int))
+{
+    struct sigaction sigact;
+    sigact.sa_handler = handler;
+    sigemptyset(&sigact.sa_mask);
+    sigact.sa_flags = 0;
 
-    std::cout << std::format("\n+++++++++++++++++++ Packet Number {} +++++++++++++++++++\n", packet_counter++);
+    sigaction(SIGINT, &sigact, nullptr);
+    sigaction(SIGTERM, &sigact, nullptr);
+}
+
+
+void signal_handler(int signum)
+{
+    // async-signal-safe logging
+    const char msg[] = "Signal received\n";
+    write(STDERR_FILENO, msg, sizeof(msg)-1);
+
+    shutdown_requested = 1;
+    handle = nullptr;
+}
+
+void print_statistics()
+{
+    auto end_time = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        end_time - start_time
+    );
+
+    double seconds = duration.count() / 1000.0;
+    double packets_per_sec = (seconds > 0) ? number_of_processed_packets / seconds : 0;
+
+    std::cout << "\n=== Packet Processing Statistics ===\n";
+    std::cout << "Total packets processed: " << number_of_processed_packets << "\n";
+    std::cout << "Duration: " << std::fixed << std::setprecision(2)
+                << seconds << " seconds\n";
+    std::cout << "Packets per second: " << std::fixed << std::setprecision(2)
+                << packets_per_sec << "\n";
+}
+
+void my_packet_handler(u_char *args, const struct pcap_pkthdr *packet_header, const u_char *packet_body) noexcept {
+    std::cout << std::format("\n+++++++++++++++++++ Packet Number {} +++++++++++++++++++\n", ++number_of_processed_packets);
 
     std::cout << std::format("\n--- New Packet Recived (Length: {}, Captured: {})\n", packet_header->len, packet_header->caplen) << std::endl;
 
@@ -400,8 +474,6 @@ void my_packet_handler(u_char *args, const struct pcap_pkthdr *packet_header, co
                 DEBUG(std::cout << std::format("\t\t\tTCP Header Length: {}\n", th_len));
                 DEBUG(std::cout << std::format("\t\t\tApplication Layer Length: {}\n", application_data_len));
                 DEBUG(std::cout << std::format("\t\t\tCurrent Packet Offset: {}\n", current_offset));
-                DEBUG(std::cout << std::format("\t\t\tTotal Layers Length (Layer 3 + Layer 4 + ... + Layer 7): {}\n", total_length));
-                DEBUG(std::cout << std::format("\t\t\tTotal Packet Length (Layer 2 + Layer 3 + Layer 4 + ... + Layer 7): {}", total_packet_length));
                 DEBUG(if (vlan_tag_len != 0) std::cout << std::format(" (+ VLAN/TAG Header Len ({}) = {})", vlan_tag_len, vlan_tag_len + total_packet_length); std::cout << '\n');
                 DEBUG(std::flush(std::cout));
 
@@ -411,23 +483,34 @@ void my_packet_handler(u_char *args, const struct pcap_pkthdr *packet_header, co
 
                     VERBOSE(std::cout << std::format("\t\t\tHTTP Data (Length: {} bytes):\n", application_data_len));
 
-                    // Print a hexdump of the application data
+                    // decide how many bytes we can safely inspect from capture
+                    std::size_t bytes_to_print =
+                      std::min((std::size_t)(packet_header->caplen - current_offset), application_data_len);
+
+                    // Parse and print HTTP start-line + headers (safe, limited to headers)
+                    VERBOSE(bool parse_result = parse_and_print_http(application_data, bytes_to_print););
+
+                    // Keep existing verbose hexdump / text dump if BE_VERBOSE is enabled
                     VERBOSE(
-                        std::size_t bytes_to_print = std::min((std::size_t)(packet_header->caplen - current_offset), application_data_len);
-                        std::cout << "\t\t\t\t";
-                        for (std::size_t i {}; i < bytes_to_print; ++i) {
-                            char c = payload[i];
-
-                            if (isprint(c)) std::cout << c;
-                            else std::cout << ".";
-
-                            if ((i + 1) % 32 == 0) std::cout << "\n\t\t\t\t";
+                        if (parse_result == false) {
+                            std::cout << "\t\t\t\t";
+                            for (std::size_t i{0}; i < bytes_to_print; ++i) {
+                                char c = payload[i];
+                                if (isprint(static_cast<unsigned char>(c)))
+                                    std::cout << c;
+                                else
+                                    std::cout << ".";
+                                if ((i + 1) % 64 == 0) std::cout << "\n\t\t\t\t";
+                            }
+                            std::cout << '\n';
                         }
-
-                        std::cout << '\n';
                     );
                 } else {
-                    std::cout << std::format("\t\tTCP Application Layer: Unhandled Application Protocol (Source port: {}, Destination port: {})\n", th_sport, th_dport);
+                    std::cout << std::format(
+                      "\t\tTCP Application Layer: Unhandled Application Protocol (Source port: {}, Destination port: "
+                      "{})\n",
+                      th_sport,
+                      th_dport);
                 }
                 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -540,4 +623,231 @@ void my_packet_handler(u_char *args, const struct pcap_pkthdr *packet_header, co
 void print_packet_info(const u_char *packet, struct pcap_pkthdr packet_header) noexcept {
     printf("Packet capture length: %d\n", packet_header.caplen);
     printf("Packet total length %d\n", packet_header.len);
+}
+
+// Check if data appears to be valid HTTP text (not binary)
+bool is_valid_http_data(const std::uint8_t *data, std::size_t len) noexcept
+{
+    if (data == nullptr || len == 0) return false;
+
+    // Check first line for valid HTTP request/response pattern
+    // Look for common HTTP methods or HTTP/ version string
+    std::string_view sv(reinterpret_cast<const char*>(data), std::min(len, (size_t)16));
+
+    // Check if starts with common HTTP methods
+    if (!(sv.starts_with("GET ") || sv.starts_with("POST ") ||
+        sv.starts_with("PUT ") || sv.starts_with("DELETE ") ||
+        sv.starts_with("HEAD ") || sv.starts_with("OPTIONS ") ||
+        sv.starts_with("PATCH ") || sv.starts_with("TRACE ") ||
+        sv.starts_with("CONNECT ") || sv.starts_with("HTTP/")))
+    {
+        return false;
+    }
+
+    // Check for excessive binary/control characters in first N bytes
+    size_t check_len = std::min(len, (size_t)256);
+    int binary_count = 0;
+    int printable_count = 0;
+
+    for (size_t i = 0; i < check_len; ++i) {
+        unsigned char c = data[i];
+
+        // Allow common HTTP characters: printable ASCII, \r, \n, \t
+        if ((c >= 32 && c <= 126) || c == '\r' || c == '\n' || c == '\t') {
+            ++printable_count;
+        } else {
+            ++binary_count;
+        }
+    }
+
+    // If more than 10% binary characters, likely not HTTP
+    if (check_len > 0 && binary_count * 10 > check_len) {
+        return false;
+    }
+
+    return true;
+}
+
+bool parse_and_print_http(const std::uint8_t *data, std::size_t len) noexcept
+{
+    if (data == nullptr || len == 0) return false;
+
+    // First check if data appears to be valid HTTP
+    if (!is_valid_http_data(data, len)) {
+        return false;
+    }
+
+    std::string_view sv(reinterpret_cast<const char *>(data), len);
+
+    // Locate end of headers
+    size_t header_end = sv.find("\r\n\r\n");
+    if (header_end == std::string_view::npos) {
+        header_end = sv.find("\n\n");
+        if (header_end != std::string_view::npos) {
+            header_end += 2; // Length of "\n\n"
+        }
+    } else {
+        header_end += 4; // Length of "\r\n\r\n"
+    }
+
+    // Limit parse length to avoid huge allocations when headers absent
+    size_t parse_len = (header_end == std::string_view::npos)
+                       ? std::min(len, (size_t)4096)
+                       : header_end;
+
+    std::string headers_str(sv.substr(0, parse_len));
+    std::istringstream iss(headers_str);
+    std::string line;
+
+    // Parse start-line
+    if (!std::getline(iss, line)) return false;
+
+    // Remove trailing \r if present
+    if (!line.empty() && line.back() == '\r') {
+        line.pop_back();
+    }
+
+    // Additional validation: check if first line contains only printable characters
+    for (unsigned char c : line) {
+        if (c < 32 && c != '\t') {  // Control characters except tab
+            return false;
+        }
+    }
+
+    // Parse method/version and URL/status
+    std::string first, second, third;
+    {
+        std::istringstream start(line);
+        start >> first >> second >> third;
+    }
+
+    // Validate we have at least 2 tokens
+    if (first.empty() || second.empty()) {
+        return false;
+    }
+
+    // Determine if request or response
+    bool is_request = true;
+    std::string method, url, version;
+    int status_code = 0;
+    std::string reason_phrase;
+
+    if (!first.empty() && first.find("HTTP/") == 0) {
+        // Response line: HTTP/1.1 200 OK
+        is_request = false;
+        version = first;
+
+        // Parse status code
+        try {
+            status_code = std::stoi(second);
+            // Validate status code range
+            if (status_code < 100 || status_code > 599) {
+                return false;
+            }
+        } catch (...) {
+            return false;
+        }
+
+        // Reason phrase is rest of line after status code
+        size_t pos = line.find(second);
+        if (pos != std::string::npos) {
+            pos += second.length();
+            while (pos < line.length() && std::isspace(static_cast<unsigned char>(line[pos]))) {
+                ++pos;
+            }
+            if (pos < line.length()) {
+                reason_phrase = line.substr(pos);
+            }
+        }
+    } else {
+        // Request line: GET /path HTTP/1.1
+        is_request = true;
+        method = first;
+        url = second;
+        version = third;
+
+        // Validate HTTP version format
+        if (version.find("HTTP/") != 0) {
+            return false;
+        }
+    }
+
+    // Parse headers
+    auto trim = [](std::string &s) {
+        // Trim leading whitespace
+        while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) {
+            s.erase(s.begin());
+        }
+        // Trim trailing whitespace
+        while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) {
+            s.pop_back();
+        }
+    };
+
+    auto is_valid_header_line = [](const std::string& s) -> bool {
+        for (unsigned char c : s) {
+            // Allow printable ASCII and common whitespace
+            if (c < 32 && c != '\t') {
+                return false;
+            }
+            if (c > 126) {  // Non-ASCII character
+                return false;
+            }
+        }
+        return true;
+    };
+
+    std::map<std::string, std::string> headers;
+    while (std::getline(iss, line)) {
+        // Remove trailing \r
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+
+        // Empty line marks end of headers
+        if (line.empty()) break;
+
+        // Validate header line doesn't contain binary data
+        if (!is_valid_header_line(line)) {
+            return false;
+        }
+
+        // Find colon separator
+        auto pos = line.find(':');
+        if (pos == std::string::npos) continue;
+
+        std::string name = line.substr(0, pos);
+        std::string value = line.substr(pos + 1);
+
+        trim(name);
+        trim(value);
+
+        if (!name.empty()) {
+            headers[name] = value;
+        }
+    }
+
+    // Print results
+    std::cout << "\t\t\t\t=== HTTP " << (is_request ? "Request" : "Response") << " ===\n";
+
+    if (is_request) {
+        std::cout << "\t\t\t\tMethod : " << method << "\n";
+        std::cout << "\t\t\t\tURL    : " << url << "\n";
+        std::cout << "\t\t\t\tVersion: " << version << "\n";
+    } else {
+        std::cout << "\t\t\t\tVersion: " << version << "\n";
+        std::cout << "\t\t\t\tStatus : " << status_code;
+        if (!reason_phrase.empty()) {
+            std::cout << " " << reason_phrase;
+        }
+        std::cout << "\n";
+    }
+
+    // Print headers
+    for (const auto &[name, value] : headers) {
+        std::cout << "\t\t\t\t" << name << ": " << value << "\n";
+    }
+    std::cout << '\n';
+
+    return true;
 }
