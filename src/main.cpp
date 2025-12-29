@@ -150,6 +150,9 @@ inline void print_packet_info(const u_char *packet, struct pcap_pkthdr packet_he
 
 
 int main(int argc, char *argv[]) {
+    DEBUG(std::cout << "Debug mode enabled..." << std::endl;)
+    VERBOSE(std::cout << "Verbose mode enabled..." << std::endl;)
+
     // Setup signals
     setup_signal_handlers(signal_handler);
 
@@ -173,11 +176,11 @@ int main(int argc, char *argv[]) {
         // Select default interface
         device = (options.interface_name.empty() ? pcap_lookupdev(error_buffer) : options.interface_name.data());
         if (device == NULL) {
-            printf("Error finding device: %s\n", error_buffer);
+            std::cout << "Error finding device: " << error_buffer << std::endl;
             return 1;
         }
 
-        printf("listening on %s\n", device);
+        std::cout << "listening on " << device << std::endl;
 
         /* Open device for live capture */
         handle = pcap_open_live(device, BUFSIZ, 0, timeout_limit, error_buffer);
@@ -192,9 +195,7 @@ int main(int argc, char *argv[]) {
         //     return EXIT_FAILURE;
         // }
 
-        std::cerr << "before pcap_loop\n";
         pcap_loop(handle, 0, my_packet_handler, NULL);
-        std::cerr << "after pcap_loop\n";
 
         // now we can cleanly shut down
         if (shutdown_requested) {
@@ -284,7 +285,7 @@ void my_packet_handler(u_char *args, const struct pcap_pkthdr *packet_header, co
 
     // 01. Dissect Ethernet Header
     if (packet_header->caplen < sizeof(struct custom_ethernet_header)) {
-        printf("Packet too small for Ethernet header!\n");
+        std::cout << "Packet too small for Ethernet header!" << std::endl;
         return;
     }
 
@@ -621,8 +622,8 @@ void my_packet_handler(u_char *args, const struct pcap_pkthdr *packet_header, co
 }
 
 void print_packet_info(const u_char *packet, struct pcap_pkthdr packet_header) noexcept {
-    printf("Packet capture length: %d\n", packet_header.caplen);
-    printf("Packet total length %d\n", packet_header.len);
+    std::cout << "Packet capture length: " << packet_header.caplen << std::endl;
+    std::cout << "Packet total length " << packet_header.len << std::endl;
 }
 
 // Check if data appears to be valid HTTP text (not binary)

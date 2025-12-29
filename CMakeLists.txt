@@ -15,6 +15,8 @@ set(SOURCES
 
 # Add compiler definition for debug targets
 if (CMAKE_BUILD_TYPE STREQUAL "DEBUG")
+    message(STATUS "Debug and verbose mode enabled")
+
     add_compile_definitions(BE_VERBOSE=1)
     add_compile_definitions(DO_DEBUGGING=1)
 endif()
