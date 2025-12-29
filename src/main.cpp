@@ -190,22 +190,30 @@ int main(int argc, char *argv[]) {
             return 2;
         }
 
-        // if (pcap_loop(handle, 0, my_packet_handler, NULL) < 0) {
-        //     std::cerr << std::format("\npcap_loop() failed: {}\n", pcap_geterr(handle));
-        //     return EXIT_FAILURE;
-        // }
+        struct pcap_pkthdr *header;
+        const u_char *data;
 
-        pcap_loop(handle, 0, my_packet_handler, NULL);
+        while (!shutdown_requested) {
+            int ret = pcap_next_ex(handle, &header, &data);
 
-        // now we can cleanly shut down
-        if (shutdown_requested) {
-            std::cout << "Stopping capture...\n";
+            if (ret == 1) {
+                // process packet
+                my_packet_handler(nullptr, header, data);
+            } else if (ret == 0) {
+                // timeout, no packet yet
+                continue;
+            } else if (ret == -1) {
+                fprintf(stderr, "pcap error: %s\n", pcap_geterr(handle));
+                break;
+            } else if (ret == -2) {
+                // end of capture file
+                break;
+            }
 
-            pcap_breakloop(handle);
-
-            // Print statistics at exit time
-            print_statistics();
         }
+
+        // Print statistics at exit time
+        print_statistics();
 
         pcap_close(handle);
     }
@@ -223,10 +231,30 @@ int main(int argc, char *argv[]) {
 
         start_time = std::chrono::steady_clock::now();
 
-        if (pcap_loop(handle, 0, my_packet_handler, NULL) < 0) {
-            std::cerr << std::format("\npcap_loop() failed: {}\n", pcap_geterr(handle));
-            return EXIT_FAILURE;
+        struct pcap_pkthdr *header;
+        const u_char *data;
+
+        while (!shutdown_requested) {
+            int ret = pcap_next_ex(handle, &header, &data);
+
+            if (ret == 1) {
+                // process packet
+                my_packet_handler(nullptr, header, data);
+            } else if (ret == 0) {
+                // timeout, no packet yet
+                continue;
+            } else if (ret == -1) {
+                fprintf(stderr, "pcap error: %s\n", pcap_geterr(handle));
+                break;
+            } else if (ret == -2) {
+                // end of capture file
+                break;
+            }
+
         }
+
+        // Print statistics at exit time
+        print_statistics();
 
         pcap_close(handle);
     }
@@ -256,8 +284,10 @@ void signal_handler(int signum)
     const char msg[] = "Signal received\n";
     write(STDERR_FILENO, msg, sizeof(msg)-1);
 
+    const char stop_msg[] = "\n\n\033[1;31m**************** Stopping capture ****************\033[0;0m\n\n";
+    write(STDERR_FILENO, stop_msg, sizeof(stop_msg)-1);
+
     shutdown_requested = 1;
-    handle = nullptr;
 }
 
 void print_statistics()
@@ -274,7 +304,7 @@ void print_statistics()
     std::cout << "Total packets processed: " << number_of_processed_packets << "\n";
     std::cout << "Duration: " << std::fixed << std::setprecision(2)
                 << seconds << " seconds\n";
-    std::cout << "Packets per second: " << std::fixed << std::setprecision(2)
+    std::cout << "Packets per second: " << std::fixed // << std::setprecision(2)
                 << packets_per_sec << "\n";
 }
 
